@@ -1,0 +1,9 @@
+{
+  "name": "openapi-changelog",
+  "description": "Track OpenAPI/Swagger spec changes and generate changelog using Git diff",
+  "version": "1.0.0",
+  "author": {
+    "name": "getsolaris",
+    "email": "getsolaris.kr@gmail.com"
+  }
+}

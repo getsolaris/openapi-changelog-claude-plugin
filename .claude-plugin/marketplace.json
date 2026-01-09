@@ -1,0 +1,27 @@
+{
+  "name": "openapi-changelog",
+  "owner": {
+    "name": "getsolaris",
+    "email": "getsolaris.kr@gmail.com"
+  },
+  "metadata": {
+    "description": "Claude Code plugin marketplace for OpenAPI changelog generation",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "openapi-changelog",
+      "source": ".",
+      "description": "Track OpenAPI/Swagger spec changes and generate changelog using Git diff",
+      "version": "1.0.0",
+      "author": {
+        "name": "getsolaris",
+        "email": "getsolaris.kr@gmail.com"
+      },
+      "homepage": "https://github.com/getsolaris/openapi-changelog",
+      "repository": "https://github.com/getsolaris/openapi-changelog",
+      "license": "MIT",
+      "keywords": ["openapi", "swagger", "changelog", "git", "api", "documentation"]
+    }
+  ]
+}
