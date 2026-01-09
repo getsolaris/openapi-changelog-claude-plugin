@@ -11,7 +11,7 @@
   "plugins": [
     {
       "name": "openapi-changelog",
-      "source": ".",
+      "source": "./",
       "description": "Track OpenAPI/Swagger spec changes and generate changelog using Git diff",
       "version": "1.0.0",
       "author": {
