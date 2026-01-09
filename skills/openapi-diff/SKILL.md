@@ -2,38 +2,45 @@
 name: openapi-diff
 description: >
   This skill should be used when analyzing differences between two OpenAPI/Swagger spec versions,
-  comparing API specifications, detecting breaking changes in APIs, or generating API changelogs.
-  Triggers: "compare OpenAPI", "API diff", "spec changes", "breaking changes", "API changelog"
+  comparing API specifications, detecting breaking changes in APIs, generating API changelogs,
+  or analyzing source code changes for API definitions.
+  Triggers: "compare OpenAPI", "API diff", "spec changes", "breaking changes", "API changelog",
+  "controller changes", "DTO changes", "API changes"
 version: 1.0.0
 ---
 
 # OpenAPI Diff Analysis Skill
 
-Compares two versions of OpenAPI/Swagger specs and extracts changes in a structured format.
+Compares two versions of OpenAPI/Swagger specs or source code and extracts API changes.
 
 ## When This Skill Applies
 
 - Analyzing differences between OpenAPI spec files
+- Analyzing source code changes for API definitions
 - Tracking API changes
 - Detecting breaking changes
 - Diff analysis for changelog generation
 
+## Analysis Modes
+
+### Mode A: Spec File Analysis
+For projects with static OpenAPI/Swagger spec files (swagger.json, openapi.yaml).
+
+### Mode B: Source Code Analysis
+For projects where specs are generated at runtime. LLM analyzes git diff to extract API changes from any framework or language.
+
 ## OpenAPI Spec Structure Reference
 
-### OpenAPI 3.x Structure
+### OpenAPI 3.x
 ```yaml
 openapi: "3.0.0"
 info:
   title: API Title
   version: "1.0.0"
-  description: API description
-servers:
-  - url: https://api.example.com
 paths:
   /resource:
     get:
       summary: Get resource
-      parameters: []
       responses:
         '200':
           content:
@@ -47,24 +54,17 @@ components:
       properties:
         id:
           type: string
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
 ```
 
-### Swagger 2.x Structure
+### Swagger 2.x
 ```yaml
 swagger: "2.0"
 info:
   title: API Title
   version: "1.0.0"
-basePath: /api
 paths:
   /resource:
     get:
-      summary: Get resource
-      parameters: []
       responses:
         '200':
           schema:
@@ -75,171 +75,59 @@ definitions:
     properties:
       id:
         type: string
-securityDefinitions:
-  bearerAuth:
-    type: apiKey
 ```
 
-## Diff Analysis Categories
+## Change Detection
 
-### 1. Endpoint Changes (paths)
+### What to Look For in Diffs
 
-**Addition detection:**
-```
-oldSpec.paths['/new-endpoint'] = undefined
-newSpec.paths['/new-endpoint'] = { get: {...} }
-→ { type: "added", category: "endpoint", path: "/new-endpoint", method: "GET" }
-```
+**Endpoint Changes:**
+- Added/removed route definitions
+- Changed HTTP methods
+- Modified route paths
+- Changed request/response types
 
-**Removal detection (Breaking):**
-```
-oldSpec.paths['/old-endpoint'] = { get: {...} }
-newSpec.paths['/old-endpoint'] = undefined
-→ { type: "removed", category: "endpoint", path: "/old-endpoint", method: "GET", breaking: true }
-```
+**Schema/DTO Changes:**
+- Added/removed fields
+- Type changes
+- Required/optional changes
+- Validation rule changes
 
-**Method addition/removal:**
-```
-oldSpec.paths['/resource'].get = {...}
-newSpec.paths['/resource'].get = {...}
-newSpec.paths['/resource'].post = {...}  // newly added
-→ { type: "added", category: "endpoint", path: "/resource", method: "POST" }
-```
+**Parameter Changes:**
+- Query parameters
+- Path parameters
+- Header parameters
+- Body parameters
 
-**Deprecated change:**
-```
-oldSpec.paths['/resource'].get.deprecated = undefined
-newSpec.paths['/resource'].get.deprecated = true
-→ { type: "deprecated", category: "endpoint", path: "/resource", method: "GET" }
-```
+**Deprecation:**
+- Deprecated flags or annotations
+- Deprecated comments
 
-### 2. Schema Changes (components/schemas or definitions)
+## Breaking Change Rules
 
-**Schema addition:**
-```
-newSpec.components.schemas['NewSchema'] = {...}
-→ { type: "added", category: "schema", name: "NewSchema" }
-```
+The following are automatically marked as breaking changes:
 
-**Field addition:**
-```
-newSpec.components.schemas.User.properties.email = { type: "string" }
-→ { type: "modified", category: "schema", name: "User", field: "email",
-   description: "Field added: email (string)" }
-```
+1. **Endpoint removal** - Existing API removed
+2. **Required parameter addition** - Causes client call failures
+3. **Response field removal** - Causes client parsing failures
+4. **Type change** - Incompatible data format
+5. **Required field addition** - Causes existing request failures
+6. **Enum value removal** - Existing values become invalid
+7. **URL path change** - Causes existing call failures
 
-**Field removal (Breaking):**
-```
-oldSpec.components.schemas.User.properties.legacyField = {...}
-not in newSpec
-→ { type: "modified", category: "schema", name: "User", field: "legacyField",
-   description: "Field removed: legacyField", breaking: true }
-```
-
-**Type change (Breaking):**
-```
-oldSpec: { type: "string" }
-newSpec: { type: "integer" }
-→ { type: "modified", category: "schema", name: "User", field: "age",
-   description: "Type changed: string → integer", breaking: true }
-```
-
-**Required change (Breaking if added):**
-```
-oldSpec.components.schemas.User.required = ["id"]
-newSpec.components.schemas.User.required = ["id", "email"]
-→ { type: "modified", category: "schema", name: "User", field: "email",
-   description: "Changed to required field", breaking: true }
-```
-
-### 3. Parameter Changes
-
-**Parameter addition:**
-```
-newSpec.paths['/users'].get.parameters has new parameter added
-→ { type: "added", category: "parameter", path: "/users", method: "GET",
-   name: "filter", description: "Query parameter added: filter" }
-```
-
-**Required parameter addition (Breaking):**
-```
-newSpec has parameter added with required: true
-→ { type: "added", category: "parameter", ..., breaking: true }
-```
-
-**Parameter removal:**
-```
-Parameter in oldSpec not in newSpec
-→ { type: "removed", category: "parameter", ... }
-```
-
-### 4. Security Changes
-
-**Security scheme addition:**
-```
-newSpec.components.securitySchemes.oauth2 = {...}
-→ { type: "added", category: "security", name: "oauth2" }
-```
-
-**Security requirement change:**
-```
-security array changed for endpoint
-→ { type: "modified", category: "security", path: "/resource", method: "GET" }
-```
-
-### 5. Metadata Changes
-
-**API version change:**
-```
-oldSpec.info.version = "1.0.0"
-newSpec.info.version = "2.0.0"
-→ { type: "modified", category: "metadata", field: "version",
-   description: "API version: 1.0.0 → 2.0.0" }
-```
-
-**Server URL change:**
-```
-servers array changed
-→ { type: "modified", category: "metadata", field: "servers" }
-```
-
-## Breaking Change Detection Rules
-
-The following changes are automatically marked as `breaking: true`:
-
-1. **Endpoint removal**: Existing API removed
-2. **Required parameter addition**: Causes client call failures
-3. **Response field removal**: Causes client parsing failures
-4. **Type change**: Incompatible data format
-5. **Required field addition**: Causes existing request failures
-6. **Enum value removal**: Existing values become invalid
-7. **URL path change**: Causes existing call failures
-
-## Language Detection for Summary
-
-Analyze info.description or the first endpoint's summary from spec:
-
-```javascript
-// Check for Korean characters
-const hasKorean = /[\uac00-\ud7af]/.test(text);
-const language = hasKorean ? 'ko' : 'en';
-```
-
-## Output Format (Markdown)
-
-Analysis results are output in Markdown format:
+## Output Format
 
 ```markdown
 ## [2026-01-09]
 
-> Added user authentication API and modified order response schema.
+> Brief summary of changes
 
 ### Added
 - `POST /auth/login` - Added login endpoint
 - `UserResponse` schema added
 
 ### Modified
-- `UserResponse.status` - Added enum values: `active`, `inactive`, `pending`
+- `UserResponse.status` - Added enum values
 
 ### Deprecated
 - `DELETE /users/{id}` - Please migrate to v2 API
@@ -252,27 +140,25 @@ Analysis results are output in Markdown format:
 - `OrderRequest.legacyField` field removed
 ```
 
-### Internal Analysis Structure
+## Language Detection
 
-```
-{
-  changes: [
-    { type: "added", category: "endpoint", path: "/auth/login", method: "POST", description: "...", breaking: false },
-    { type: "removed", category: "endpoint", path: "/legacy/users", method: "GET", description: "...", breaking: true }
-  ],
-  summary: { added: 5, modified: 3, deprecated: 1, removed: 2, breaking: 2 }
-}
-```
+Detect language from spec description or code comments:
+- If Korean characters detected → write in Korean
+- Otherwise → write in English
 
 ## Comparison Algorithm
 
-1. **Parse both specs** (JSON/YAML)
-2. **Compare paths** object keys and values
-3. **Compare components/schemas** or definitions
-4. **Compare parameters** for each operation
-5. **Compare security** schemes and requirements
-6. **Compare info** and server metadata
-7. **Classify each difference** by type and category
-8. **Detect breaking changes** using rules
-9. **Generate descriptions** in detected language
-10. **Return structured diff** result
+### For Spec Files:
+1. Parse both specs (JSON/YAML)
+2. Compare paths, schemas, parameters
+3. Classify differences by type
+4. Detect breaking changes
+5. Generate descriptions
+
+### For Source Code:
+1. Get changed files from git diff
+2. Read diff content
+3. Analyze for API-related changes
+4. Classify differences by type
+5. Detect breaking changes
+6. Generate descriptions

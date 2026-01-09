@@ -6,7 +6,7 @@ allowed-tools: [Read, Glob, Grep, Bash, Write, Edit]
 
 # /openapi-changelog - OpenAPI Changelog Generator
 
-Analyzes OpenAPI/Swagger spec file changes using Git diff and records them in `api-changelog.md`.
+Analyzes OpenAPI/Swagger spec file or source code changes using Git diff and records them in `api-changelog.md`.
 
 ## Arguments
 
@@ -15,7 +15,7 @@ User provided arguments: $ARGUMENTS
 ## Usage
 
 ```bash
-# Basic usage (auto-detect spec file)
+# Basic usage (auto-detect spec file or source code)
 /openapi-changelog
 
 # Specify file
@@ -33,24 +33,31 @@ User provided arguments: $ARGUMENTS
 
 ## Execution Flow
 
-### Step 1: Detect OpenAPI Spec File
+### Step 1: Detect Analysis Mode
 
-If no file is provided as argument, auto-detect in this priority order:
+**Mode A - Spec File Analysis:**
+If spec file is provided as argument or auto-detected, use spec file analysis.
 
+Auto-detect spec files in this priority order:
 ```
 1. swagger.json
 2. openapi.json
-3. openapi.yaml
-4. openapi.yml
-5. swagger.yaml
-6. swagger.yml
-7. **/swagger.json (subdirectories)
-8. **/openapi.json (subdirectories)
+3. openapi.yaml / openapi.yml
+4. swagger.yaml / swagger.yml
+5. **/swagger.json (subdirectories)
+6. **/openapi.json (subdirectories)
+7. docs/swagger.json
+8. docs/openapi.json
 ```
 
-Use Glob tool to check file existence and use the first found file.
+**Mode B - Source Code Analysis (Fallback):**
+If no spec file found, analyze git diff of changed source code files to extract API changes.
 
-### Step 2: Check Git Status
+---
+
+## Mode A: Spec File Analysis
+
+### Step A1: Check Git Status
 
 ```bash
 git status --porcelain -- <spec-file>
@@ -59,55 +66,129 @@ git diff --name-only HEAD~1 -- <spec-file>
 
 If no changes, output "No changes detected" and exit.
 
-### Step 3: Compare Previous/Current Versions
+### Step A2: Compare Previous/Current Versions
 
-**If there are staged or unstaged changes:**
 ```bash
-# Read current file
+# Current version
 cat <spec-file>
 
-# Get previous version (HEAD)
+# Previous version (HEAD or --from commit)
 git show HEAD:<spec-file>
-```
-
-**If --from option is provided:**
-```bash
+# or
 git show <from-commit>:<spec-file>
 ```
 
-### Step 4: Analyze and Compare OpenAPI Spec
+### Step A3: Analyze Spec Diff
 
-Compare the two versions and extract:
+Compare the two JSON/YAML versions and extract:
+- Endpoint changes (paths)
+- Schema changes (components/schemas or definitions)
+- Parameter changes
+- Security changes
+- Metadata changes
 
-#### Endpoint Changes (paths)
-- New paths/methods added → Added
-- Paths/methods deleted → Removed
-- Modified paths (parameters, responses, etc.) → Modified
-- deprecated added → Deprecated
+---
 
-#### Schema Changes (components/schemas or definitions)
-- New schema added → Added
-- Schema deleted → Removed
-- Field added/deleted/type changed → Modified
+## Mode B: Source Code Analysis
 
-#### Parameter Changes
-- Query/header/path parameters added/deleted/modified
+### Step B1: Get Changed Files
 
-#### Security Changes
-- securitySchemes changes
+```bash
+# Get all changed files
+git diff --name-only HEAD~1
 
-#### Metadata Changes
-- info, tags, servers, etc.
+# Or if --from is provided
+git diff --name-only <from-commit>
+```
 
-### Step 5: Generate Change Summary
+### Step B2: Get Diff Content
 
-Detect the language of the spec's description field and write summary in the same language.
-If Korean is detected, write in Korean; if English, write in English.
+For each changed file that might contain API definitions (controllers, routes, DTOs, models, schemas):
+
+```bash
+git diff HEAD~1 -- <file>
+# or
+git diff <from-commit> -- <file>
+```
+
+### Step B3: Analyze Diff with LLM
+
+Read the diff output and intelligently analyze:
+
+1. **Endpoint Changes**: Look for added/removed/modified route definitions
+   - HTTP method decorators/annotations (@Get, @Post, @GetMapping, @app.get, etc.)
+   - Route paths
+   - Request/response types
+
+2. **Schema/DTO Changes**: Look for added/removed/modified fields
+   - Property decorators (@ApiProperty, @Schema, Field(), etc.)
+   - Type changes
+   - Required/optional changes
+   - Validation changes
+
+3. **Deprecation**: Look for deprecated flags or annotations
+
+4. **Breaking Changes**: Identify changes that break backward compatibility
+   - Removed endpoints
+   - Removed required fields
+   - Type changes
+   - Added required parameters
+
+The LLM should understand various frameworks and languages:
+- TypeScript/JavaScript (NestJS, Express, Fastify)
+- Java/Kotlin (Spring Boot)
+- Python (FastAPI, Flask, Django)
+- Go (Gin, Echo)
+- Ruby (Rails)
+- PHP (Laravel)
+- And others
+
+---
+
+## Change Categories
+
+### Added
+- New endpoints
+- New schemas/DTOs
+- New fields
+- New parameters
+
+### Modified
+- Changed parameters
+- Changed field types
+- Changed validation rules
+- Changed response types
+
+### Deprecated
+- Endpoints marked as deprecated
+- Fields marked as deprecated
+
+### Removed
+- Deleted endpoints
+- Deleted schemas
+- Deleted fields
+
+### Breaking Changes
+- Endpoint removal
+- Required parameter addition
+- Required field addition
+- Field type change
+- Response field removal
+
+---
+
+## Step 4: Generate Change Summary
+
+Detect the language from source code comments or descriptions.
+Write summary in the same language (Korean or English).
 
 Summary should be concise, 1-2 sentences:
 - Example: "Added user authentication API and modified order response schema."
+- Example (Korean): "사용자 인증 API 추가 및 주문 응답 스키마 수정"
 
-### Step 6: Create/Update Changelog Markdown
+---
+
+## Step 5: Create/Update Changelog Markdown
 
 **Determine output file path:**
 - Use path from `--output` option if provided
@@ -121,7 +202,9 @@ Summary should be concise, 1-2 sentences:
 **If new file:**
 Create new changelog structure
 
-### Step 7: Markdown Output Format
+---
+
+## Step 6: Markdown Output Format
 
 ```markdown
 # API Changelog
@@ -154,19 +237,13 @@ Records changes to the OpenAPI spec.
 - `OrderRequest.legacyField` field removed
 
 ---
-
-## [2026-01-08]
-
-> Improved product search functionality.
-
-### Modified
-- `GET /products` - Added search filter options
-
----
 ```
 
-### Step 8: Output Results
+---
 
+## Step 7: Output Results
+
+**For Spec File Analysis:**
 ```
 📋 OpenAPI Changelog Generated
 
@@ -177,30 +254,32 @@ Records changes to the OpenAPI spec.
 <summary>
 
 ### ➕ Added (<count>)
-- `<METHOD> <path>` - <description>
-
 ### ✏️ Modified (<count>)
-- `<name>.<field>` - <description>
-
 ### ⚠️ Deprecated (<count>)
-- `<METHOD> <path>` - <description>
-
 ### 🗑️ Removed (<count>)
-- `<METHOD> <path>` - <description>
+
+✅ api-changelog.md updated
+```
+
+**For Source Code Analysis:**
+```
+📋 OpenAPI Changelog Generated (Source Code Analysis)
+
+📁 Analyzed files: <count> files
+📊 Comparing: <from-commit> → <to-commit>
+
+## Change Summary
+<summary>
+
+### ➕ Added (<count>)
+### ✏️ Modified (<count>)
+### ⚠️ Deprecated (<count>)
+### 🗑️ Removed (<count>)
 
 ✅ api-changelog.md updated
 ```
 
 ---
-
-## Breaking Change Detection
-
-The following changes are marked separately in the Breaking Changes section:
-- Endpoint removal
-- Required parameter addition
-- Response field removal
-- Parameter/field type change
-- Required field addition
 
 ## Markdown Parsing Rules
 
@@ -214,6 +293,6 @@ When updating existing file:
 ## Error Handling
 
 - Not a Git repository: "Please run in a Git repository"
-- Spec file not found: "Could not find OpenAPI spec file"
+- No spec file and no code changes: "No API changes detected"
 - No changes: "No changes detected"
 - JSON/YAML parsing error: Abort with error message
